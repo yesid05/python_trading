@@ -107,7 +107,7 @@ def senal_compra(ma9, ma48, rsi):
     return ma9 > ma48 and rsi > 55 and rsi < 65
 
 def senal_venta(ma9, ma48, rsi):
-    return ma9 < ma48 or rsi < 45 and rsi > 60
+    return ma9 < ma48 or rsi < 45 or rsi > 60
 
 def precio_actual(df):
     return float(df.iloc[-1]["close"])
