@@ -71,9 +71,9 @@ def detectar_tendencia(df):
     #and float(ultimo['volume']) < float(ultimo['VOL_MA20'])
     
     
-    if ma9 > ma48 and rsi > 50 :
+    if ma9 > ma48 and rsi > 55 :
         return "ALCISTA", ma9, ma48, rsi
-    elif ma9 < ma48 and rsi < 50 :
+    elif ma9 < ma48 and rsi < 55 :
         return "BAJISTA", ma9, ma48, rsi
     return "NEUTRAL", ma9, ma48, rsi
 
@@ -103,11 +103,11 @@ def calcular_usdc_comprar(balance_cripto, precio):
 def calcular_precio_equilibrio(precio):
     return precio / (1 - 0.001)**2
 
-def senal_compra(ma9, ma48, rsi):    
-    return ma9 > ma48 and rsi > 55 and rsi < 65
+def senal_compra(ma9ultimo, ma9penultimo, rsi, precio_cierre):
+    return (ma9ultimo - ma9penultimo) > 0 and precio_cierre > ma9ultimo and rsi < 60
 
 def senal_venta(ma9, ma48, rsi):
-    return ma9 < ma48 or rsi < 45 or rsi > 60
+    return ma9 > ma48 or rsi > 60
 
 def precio_actual(df):
     return float(df.iloc[-1]["close"])
@@ -216,9 +216,21 @@ while True:
         
         precio_ahora = precio_actual(df)
         
-        if tendencia == "ALCISTA" and compra_realizada == False:
+        if tendencia == "BAJISTA" and compra_realizada == False:
             
-            if senal_compra(ma9, ma48, rsi) == True:
+            ma9ultimo = df.iloc[-1]['MA9']
+            ma9penultimo = df.iloc[-2]['MA9']
+            rsi = df.iloc[-1]['RSI10']
+            
+            print(
+                f"Ultimo {ma9ultimo} | "
+                f"Penultimo {ma9penultimo} | " 
+                f"Rsi {rsi} | "
+                f"Precio cierra {precio_ahora} | " 
+                f"Señal de compra {senal_compra(ma9ultimo, ma9penultimo, rsi, precio_cierre=precio_ahora)}"
+            )
+            
+            if senal_compra(ma9ultimo, ma9penultimo, rsi, precio_cierre=precio_ahora) == True:
                 
                 print(f"Precio actual {precio_ahora}")
                 
@@ -293,4 +305,4 @@ while True:
                 
     except Exception as e:
         print("Error:", e.with_traceback())
-    time.sleep(20)
+    time.sleep(60)
