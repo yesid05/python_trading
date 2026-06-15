@@ -11,7 +11,7 @@ from decouple import config
 API_KEY = config("API_KEY")
 API_SECRET = config("API_SECRET")
 SYMBOL = "BTCUSDC"
-INTERVAL = Client.KLINE_INTERVAL_1MINUTE
+INTERVAL = Client.KLINE_INTERVAL_5MINUTE
 usdc = 50
 crypto = 0
 precio_equilibrio = 0
@@ -71,9 +71,9 @@ def detectar_tendencia(df):
     #and float(ultimo['volume']) < float(ultimo['VOL_MA20'])
     
     
-    if ma9 > ma48 and rsi > 55 :
+    if ma9 > ma48 and rsi > 50 :
         return "ALCISTA", ma9, ma48, rsi
-    elif ma9 < ma48 and rsi < 55 :
+    elif ma9 < ma48 and rsi < 50 :
         return "BAJISTA", ma9, ma48, rsi
     return "NEUTRAL", ma9, ma48, rsi
 
@@ -103,11 +103,11 @@ def calcular_usdc_comprar(balance_cripto, precio):
 def calcular_precio_equilibrio(precio):
     return precio / (1 - 0.001)**2
 
-def senal_compra(ma9ultimo, ma9penultimo, rsi, precio_cierre):
-    return (ma9ultimo - ma9penultimo) > 0 and precio_cierre > ma9ultimo and rsi < 60
+def senal_compra(ma9, ma48, rsi):
+    return ma9 > ma48 and rsi > 50 and rsi < 80
 
-def senal_venta(ma9, ma48, rsi):
-    return ma9 > ma48 or rsi > 60
+def senal_venta(precio_cierre, precio_compra):
+    return precio_cierre >= (precio_compra + 262)
 
 def precio_actual(df):
     return float(df.iloc[-1]["close"])
@@ -192,6 +192,7 @@ stop_loss_compra = 0
 take_profit_compra = 0
 compra_realizada = False
 venta_realizada = False
+precio_de_compra = 0
 
 while True:
     try:
@@ -216,23 +217,13 @@ while True:
         
         precio_ahora = precio_actual(df)
         
-        if tendencia == "BAJISTA" and compra_realizada == False:
+        if tendencia == "ALCISTA" and compra_realizada == False:
             
-            ma9ultimo = df.iloc[-1]['MA9']
-            ma9penultimo = df.iloc[-2]['MA9']
-            rsi = df.iloc[-1]['RSI10']
-            
-            print(
-                f"Ultimo {ma9ultimo} | "
-                f"Penultimo {ma9penultimo} | " 
-                f"Rsi {rsi} | "
-                f"Precio cierra {precio_ahora} | " 
-                f"Señal de compra {senal_compra(ma9ultimo, ma9penultimo, rsi, precio_cierre=precio_ahora)}"
-            )
-            
-            if senal_compra(ma9ultimo, ma9penultimo, rsi, precio_cierre=precio_ahora) == True:
+            if senal_compra(ma9, ma48, rsi) == True:
                 
                 print(f"Precio actual {precio_ahora}")
+                
+                precio_de_compra = precio_ahora
                 
                 cantidad_comprada = cantidad_comprar(precio_ahora)
                 crypto = cantidad_comprada
@@ -258,11 +249,11 @@ while True:
         
         else:
             print(f"Compra realizada {compra_realizada}")
-            print(f"Señal de venta {senal_venta(ma9, ma48, rsi)}")
+            print(f"Señal de venta {senal_venta(precio_cierre=precio_ahora,precio_compra=precio_de_compra)}")
             print(f"Vanta realizada {venta_realizada}")
-            if compra_realizada == True and senal_venta(ma9, ma48, rsi) == True and venta_realizada == False:
+            if compra_realizada == True and venta_realizada == False:
                 
-                if precio_ahora >= precio_equilibrio:
+                if senal_venta(precio_cierre=precio_ahora,precio_compra=precio_de_compra) == True:
                     
                     cantidad_vendida = cantidad_vender(precio_actual=precio_ahora)
                     usdc = cantidad_vendida
@@ -281,7 +272,7 @@ while True:
                     
                     venta_realizada = True
                     
-                elif precio_ahora <= precio_perdida:
+                elif ma9 <= ma48:
                     
                     cantidad_vendida = cantidad_vender(precio_actual=precio_ahora)
                     usdc = cantidad_vendida
@@ -299,7 +290,7 @@ while True:
                     )
                     
                     venta_realizada = True
-                    
+                                        
                 else:
                     print(f"Precio objetivo de venta no alcanzado: Precio actual {precio_ahora} Precio Objetivo {precio_equilibrio}")
                 
