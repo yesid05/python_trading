@@ -1,6 +1,7 @@
 import time
 import pandas as pd
 from binance.client import Client
+from binance import ThreadedWebsocketManager
 from ta.momentum import RSIIndicator
 from telegram import Bot
 import requests
@@ -194,14 +195,23 @@ compra_realizada = False
 venta_realizada = False
 precio_de_compra = 0
 
-while True:
+def ejecutar_estrategia():
     try:
+        
+        global compra_realizada
+        global venta_realizada
+        global precio_de_compra
+        global precio_equilibrio
+        global cantidad_comprada
+        global crypto
+        global usdc
         
         print(f"Balance USDC {balance_usdc()}")
         print(f"Balance CRYPTO {balance_crypto()}")
         
         df = obtener_datos(SYMBOL, INTERVAL)
         df = calcular_indicadores(df)
+        
         tendencia, ma9, ma48, rsi = detectar_tendencia(df)
         print(
             f"[{pd.Timestamp.now()}] "
@@ -296,4 +306,30 @@ while True:
                 
     except Exception as e:
         print("Error:", e.with_traceback())
-    time.sleep(60)
+    
+def manejar_mensaje(msg):
+
+    kline = msg['k']
+
+    if kline['x']:  # vela cerrada
+        print(
+            f"Vela 5m cerrada - Close: {kline['c']}"
+        )
+
+        # Ejecutar estrategia
+        ejecutar_estrategia()
+
+twm = ThreadedWebsocketManager(
+    api_key=API_KEY,
+    api_secret=API_SECRET
+)
+
+twm.start()
+
+twm.start_kline_socket(
+    callback=manejar_mensaje,
+    symbol=SYMBOL,
+    interval=INTERVAL
+)
+
+twm.join()
