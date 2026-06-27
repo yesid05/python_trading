@@ -14,7 +14,7 @@ API_KEY = config("API_KEY")
 API_SECRET = config("API_SECRET")
 SYMBOL = "BTCUSDC"
 INTERVAL = Client.KLINE_INTERVAL_5MINUTE
-usdc = 50
+usdc = 20
 crypto = 0
 precio_equilibrio = 0
 precio_perdida = 0
@@ -119,7 +119,7 @@ def calcular_usdc_comprar(balance_cripto, precio):
 def calcular_precio_equilibrio(precio):
     return precio / (1 - 0.001)**2
 
-def senal_compra(ma9, ma48, rsi, histogram):
+def senal_compra(ma9, ma48, precio_actual):
     
     """
     # Compra: MACD cruza por encima de la señal
@@ -135,10 +135,10 @@ df['sell_signal'] = (
 )
 rsi > 50 and rsi < 80
     """
-    return ma9 < ma48 and histogram > 0
+    return precio_actual > ma9 and precio_actual > ma48
 
 def senal_venta(precio_cierre, precio_compra, histogram):
-    return precio_cierre >= (precio_compra + 131) and histogram < 0
+    return precio_cierre >= (precio_compra + 232) and histogram < 0
 
 def precio_actual(df):
     return float(df.iloc[-1]["close"])
@@ -266,36 +266,34 @@ def ejecutar_estrategia():
         
         precio_ahora = precio_actual(df)
         
-        if tendencia == "BAJISTA" and compra_realizada == False:
-            
-            if senal_compra(ma9, ma48, rsi, histogram) == True:
+        if senal_compra(ma9, ma48, precio_actual=precio_ahora) and compra_realizada == False:
                 
-                print(f"Precio actual {precio_ahora}")
+            print(f"Precio actual {precio_ahora}")
                 
-                precio_de_compra = precio_ahora
+            precio_de_compra = precio_ahora
                 
-                cantidad_comprada = cantidad_comprar(precio_ahora)
-                crypto = cantidad_comprada
-                print(f"Cantidad comprar {cantidad_comprada} BTC")
+            cantidad_comprada = cantidad_comprar(precio_ahora)
+            crypto = cantidad_comprada
+            print(f"Cantidad comprar {cantidad_comprada} BTC")
                 
-                precio_equilibrio = calcular_precio_equilibrio(precio=precio_ahora)
-                print(f"Precio equilibrio {precio_equilibrio} USD")
+            precio_equilibrio = calcular_precio_equilibrio(precio=precio_ahora)
+            print(f"Precio equilibrio {precio_equilibrio} USD")
+               
+            precio_perdida = stop_loss(precio_actual=precio_ahora)
+            print(f"Precio perdida {precio_perdida} USD")
                 
-                precio_perdida = stop_loss(precio_actual=precio_ahora)
-                print(f"Precio perdida {precio_perdida} USD")
+            comprar(precio_ahora,cantidad_comprada,stop_loss=stop_loss_compra,take_profit=take_profit_compra)
                 
-                comprar(precio_ahora,cantidad_comprada,stop_loss=stop_loss_compra,take_profit=take_profit_compra)
+            enviar_alerta(
+                f"[{pd.Timestamp.now()}] \n"
+                f"===COMPRA REALIZADA=== \n "
+                f"Precio de compra: {precio_ahora} \n "
+                f"Precio equilibrio {precio_equilibrio} USD \n"
+                f"Cantidad comprar {cantidad_comprada} BTC \n "
+            )
                 
-                enviar_alerta(
-                    f"[{pd.Timestamp.now()}] \n"
-                    f"===COMPRA REALIZADA=== \n "
-                    f"Precio de compra: {precio_ahora} \n "
-                    f"Precio equilibrio {precio_equilibrio} USD \n"
-                    f"Cantidad comprar {cantidad_comprada} BTC \n "
-                )
-                
-                compra_realizada = True
-                vender_bajo_precio = False
+            compra_realizada = True
+            vender_bajo_precio = False
         
         else:
             print(f"Compra realizada {compra_realizada}")
@@ -341,7 +339,7 @@ def ejecutar_estrategia():
                     
                     venta_realizada = True
                 
-                elif precio_ahora <= precio_perdida:
+                elif ma9 < ma48 and  precio_ahora <= precio_perdida:
                     
                     cantidad_vendida = cantidad_vender(precio_actual=precio_ahora)
                     usdc = cantidad_vendida
