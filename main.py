@@ -13,7 +13,7 @@ from decouple import config
 API_KEY = config("API_KEY")
 API_SECRET = config("API_SECRET")
 SYMBOL = "BTCUSDC"
-INTERVAL = Client.KLINE_INTERVAL_5MINUTE
+INTERVAL = Client.KLINE_INTERVAL_15MINUTE
 usdc = 20
 crypto = 0
 precio_equilibrio = 0
@@ -119,7 +119,7 @@ def calcular_usdc_comprar(balance_cripto, precio):
 def calcular_precio_equilibrio(precio):
     return precio / (1 - 0.001)**2
 
-def senal_compra(ma9, ma48, precio_actual):
+def senal_compra(histogram):
     
     """
     # Compra: MACD cruza por encima de la señal
@@ -135,10 +135,10 @@ df['sell_signal'] = (
 )
 rsi > 50 and rsi < 80
     """
-    return precio_actual > ma9 and precio_actual > ma48
+    return histogram > 0
 
 def senal_venta(precio_cierre, precio_compra, histogram):
-    return precio_cierre >= (precio_compra + 232) and histogram < 0
+    return precio_cierre >= (precio_compra + 300) or histogram < 0
 
 def precio_actual(df):
     return float(df.iloc[-1]["close"])
@@ -223,14 +223,16 @@ stop_loss_compra = 0
 take_profit_compra = 0
 compra_realizada = False
 venta_realizada = False
+cierre_vela = False
 vender_bajo_precio = False
 precio_de_compra = 0
 
-def ejecutar_estrategia():
+def ejecutar_estrategia(msg):
     try:
                 
         global compra_realizada
         global venta_realizada
+        global cierre_vela
         global vender_bajo_precio
         global precio_de_compra
         global precio_equilibrio
@@ -239,38 +241,42 @@ def ejecutar_estrategia():
         global crypto
         global usdc
         
-        print(f"Balance USDC {balance_usdc()}")
-        print(f"Balance CRYPTO {balance_crypto()}")
+        #print(f"Balance USDC {balance_usdc()}")
+        #print(f"Balance CRYPTO {balance_crypto()}")
+        
+        kline = msg["k"]            
         
         df = obtener_datos(SYMBOL, INTERVAL)
         df = calcular_indicadores(df)
         
-        print(df)
-        
-        tendencia, ma9, ma48, rsi, histogram = detectar_tendencia(df)
-        print(
-            f"[{pd.Timestamp.now()}] "
-            f"Tendencia: {tendencia} | "
-            f"MA9={ma9:.2f} | "
-            f"MA48={ma48:.2f} | "
-            f"RSI10={rsi:.2f}"
-            f"HISTOGRAM={histogram:.2f}"
-        )
-        
-        if ma9 < ma48 and venta_realizada == True:
-            venta_realizada = False
-            compra_realizada = False
-        
-        if ma9 > ma48 and compra_realizada == True:
-            vender_bajo_precio = True
-        
+        histogram = detectar_tendencia(df)
         precio_ahora = precio_actual(df)
         
-        if senal_compra(ma9, ma48, precio_actual=precio_ahora) and compra_realizada == False:
-                
-            print(f"Precio actual {precio_ahora}")
-                
+        if venta_realizada == True:
+            
+            if kline["x"] and histogram[4] < 0:
+                #print(f"Vela cerrada [{pd.Timestamp.now()}]")
+                compra_realizada = False
+                venta_realizada = False
+            else:
+                #print("Venta realizada vela no cerrada")
+                return
+        
+        if cierre_vela == True:
+            if not kline["x"]:
+                #print("Compra realizada vela no cerrada")
+                return
+            else:
+                #print([{pd.Timestamp.now()}])
+                cierre_vela = False
+        
+        if senal_compra(histogram[4]) and compra_realizada == False:
             precio_de_compra = precio_ahora
+            
+            print(f"Balance USDC {balance_usdc()}")
+            print(f"Balance CRYPTO {balance_crypto()}")
+            
+            print(f"Precio actual {precio_ahora}")
                 
             cantidad_comprada = cantidad_comprar(precio_ahora)
             crypto = cantidad_comprada
@@ -283,7 +289,7 @@ def ejecutar_estrategia():
             print(f"Precio perdida {precio_perdida} USD")
                 
             comprar(precio_ahora,cantidad_comprada,stop_loss=stop_loss_compra,take_profit=take_profit_compra)
-                
+            
             enviar_alerta(
                 f"[{pd.Timestamp.now()}] \n"
                 f"===COMPRA REALIZADA=== \n "
@@ -293,88 +299,39 @@ def ejecutar_estrategia():
             )
                 
             compra_realizada = True
-            vender_bajo_precio = False
-        
-        else:
-            print(f"Compra realizada {compra_realizada}")
-            print(f"Señal de venta {senal_venta(precio_cierre=precio_ahora,precio_compra=precio_de_compra,histogram=histogram)}")
-            print(f"Vanta realizada {venta_realizada}")
-            if compra_realizada == True and venta_realizada == False:
+            cierre_vela = True
+            
+        elif compra_realizada == True and venta_realizada == False:
+            if senal_venta(precio_cierre=precio_ahora,precio_compra=precio_de_compra,histogram=histogram[4]):
                 
-                if senal_venta(precio_cierre=precio_ahora,precio_compra=precio_de_compra, histogram=histogram) == True:
-                    
-                    cantidad_vendida = cantidad_vender(precio_actual=precio_ahora)
-                    usdc = cantidad_vendida
-                    print(f"Cantidad vender {cantidad_vendida} USDC")
-                    
-                    vender(precio_ahora,cantidad_vendida,stop_loss_compra,take_profit_compra)
-                    
-                    enviar_alerta(
-                        f"[{pd.Timestamp.now()}] \n"
-                        f"===VENTA REALIZADA=== \n "
-                        f"Precio de venta: {precio_ahora} USDC \n "
-                        f"Precio equilibrio {precio_equilibrio} USDC \n "
-                        f"Cantidad vender {cantidad_vendida} USDC \n "
-                        f"Balance {usdc}"
-                    )
-                    
-                    venta_realizada = True
-                    
-                elif ma9 <= ma48 and vender_bajo_precio == True:
-                    
-                    cantidad_vendida = cantidad_vender(precio_actual=precio_ahora)
-                    usdc = cantidad_vendida
-                    print(f"Cantidad vender {cantidad_vendida} USDC")
-                    
-                    vender(precio_ahora,cantidad_vendida,stop_loss_compra,take_profit_compra)
-                    
-                    enviar_alerta(
-                        f"[{pd.Timestamp.now()}] \n"
-                        f"===VENTA REALIZADA=== \n "
-                        f"Precio de venta: {precio_ahora} USDC \n "
-                        f"Precio equilibrio {precio_equilibrio} USDC \n "
-                        f"Cantidad vender {cantidad_vendida} USDC \n "
-                        f"Balance {usdc}"
-                    )
-                    
-                    venta_realizada = True
+                print(f"Balance USDC {balance_usdc()}")
+                print(f"Balance CRYPTO {balance_crypto()}")
                 
-                elif ma9 < ma48 and  precio_ahora <= precio_perdida:
+                cantidad_vendida = cantidad_vender(precio_actual=precio_ahora)                    
+                usdc = cantidad_vendida
+                print(f"Cantidad vender {cantidad_vendida} USDC")
                     
-                    cantidad_vendida = cantidad_vender(precio_actual=precio_ahora)
-                    usdc = cantidad_vendida
-                    print(f"Cantidad vender precio perdida {cantidad_vendida} USDC")
-                    
-                    vender(precio_ahora,cantidad_vendida,stop_loss_compra,take_profit_compra)
-                    
-                    enviar_alerta(
-                        f"[{pd.Timestamp.now()}] \n"
-                        f"===VENTA REALIZADA=== \n "
-                        f"Precio de venta: {precio_ahora} USDC \n "
-                        f"Precio equilibrio {precio_equilibrio} USDC \n "
-                        f"Cantidad vender {cantidad_vendida} USDC \n "
-                        f"Balance {usdc}"
-                    )
-                    
-                    venta_realizada = True
-                                        
-                else:
-                    print(f"Precio objetivo de venta no alcanzado: Precio actual {precio_ahora} Precio Objetivo {precio_equilibrio}")
+                vender(precio_ahora,cantidad_vendida,stop_loss_compra,take_profit_compra)
                 
+                enviar_alerta(
+                    f"[{pd.Timestamp.now()}] \n"
+                    f"===VENTA REALIZADA=== \n "
+                    f"Precio de venta: {precio_ahora} USDC \n "
+                    f"Precio equilibrio {precio_equilibrio} USDC \n "
+                    f"Cantidad vender {cantidad_vendida} USDC \n "
+                    f"Balance {usdc}"
+                )
+                    
+                venta_realizada = True
+            #else:
+                #print(f"Precio objetivo de venta no alcanzado: Precio actual {precio_ahora} Precio Objetivo {precio_equilibrio}")
+        #else:
+            #print("Sin operaciones")
+
+             
     except Exception as e:
+        enviar_alerta("App detenida")
         print("Error:", e.with_traceback())
-  
-def manejar_mensaje(msg):
-
-    kline = msg['k']
-
-    if kline['x']:  # vela cerrada
-        print(
-            f"Vela 5m cerrada - Close: {kline['c']}"
-        )
-
-        # Ejecutar estrategia
-        ejecutar_estrategia()
 
 twm = ThreadedWebsocketManager(
     api_key=API_KEY,
@@ -384,7 +341,7 @@ twm = ThreadedWebsocketManager(
 twm.start()
 
 twm.start_kline_socket(
-    callback=manejar_mensaje,
+    callback=ejecutar_estrategia,
     symbol=SYMBOL,
     interval=INTERVAL
 )
